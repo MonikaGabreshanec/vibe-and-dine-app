@@ -1,7 +1,13 @@
+<svelte:head>
+  <link rel="stylesheet" href="/css/map.css" />
+</svelte:head>
+
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+import { onMount, onDestroy } from 'svelte';
 import { browser } from '$app/environment';
 import { transliterate } from 'transliteration';
+import { getUserLocation } from '$lib/usersLocation';
+import type { UserLocation } from '$lib/usersLocation';
 
 let mapContainer: HTMLDivElement | null = null;
 let map: any;
@@ -9,7 +15,11 @@ let markers: any[] = [];
 let selectedCategory = "all";
 let searchQuery = "";
 
-// чита category од URL 
+let userLocation: UserLocation | null = null;
+let isNearMeActive = false;
+
+
+// chita category od URL 
 $: if (browser) {
     const urlParams = new URLSearchParams(window.location.search);
     selectedCategory = urlParams.get('category') || "all";
@@ -54,8 +64,30 @@ const updateMarkers = async (locations: any[]) => {
         const matchesCategory = selectedCategory === "all" || location.tags.amenity === selectedCategory;
         const matchesSearch = locationNameTranslit.includes(searchQueryTranslit);
 
+        if (isNearMeActive && userLocation) {
+        const distance = getDistanceFromLatLonInKm(
+            userLocation.lat,
+            userLocation.lng,
+            location.lat,
+            location.lon
+        );
+        if (distance > 1.5) return false;
+    }
+
         return matchesCategory && matchesSearch;
     });
+    
+    function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371; // Radius of the earth in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+        0.5 - Math.cos(dLat) / 2 +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        (1 - Math.cos(dLon)) / 2;
+    return R * 2 * Math.asin(Math.sqrt(a));
+}
+
 
     filteredLocations.forEach(location => {
         if (location.lat && location.lon) {
@@ -110,6 +142,22 @@ $: if (browser && map && selectedCategory) {
     fetchOverpassData().then(updateMarkers);
 }
 
+const toggleNearMe = async () => {
+    isNearMeActive = !isNearMeActive;
+
+    if (isNearMeActive) {
+        userLocation = await getUserLocation();
+        if (!userLocation) {
+            alert("Could not get your location.");
+            isNearMeActive = false;
+            return;
+        }
+    }
+
+    const locations = await fetchOverpassData();
+    await updateMarkers(locations);
+};
+
 
 onDestroy(() => {
     if (map) map.remove();
@@ -127,6 +175,7 @@ onDestroy(() => {
             <option value="bar">Bars</option>
             <option value="pub">Pubs</option>
         </select>
+        <button on:click={toggleNearMe}>Near Me</button>
     </div>
     
     <!-- Search bar -->
@@ -134,38 +183,12 @@ onDestroy(() => {
         <input type="text" bind:value={searchQuery} placeholder="Search by name..." />
         <button on:click={handleSearch}>Search</button>
     </div>
-    
     <!-- Map -->
     <div class="map-container" bind:this={mapContainer}></div>
     
 </main>
 
 <style>
-    @import 'leaflet/dist/leaflet.css';
-
-    .filter-container {
-        margin-bottom: 10px;
-        text-align: center;
-    }
-
-    .filter-container select {
-        padding: 5px;
-        font-size: 16px;
-    }
-
-    .map-container {
-        width: 100%;
-        height: 600px;
-    }
-    .search-container {
-    text-align: center;
-    margin-bottom: 10px;
-}
-
-.search-container input {
-    padding: 5px;
-    font-size: 16px;
-    width: 200px;
-}
-
+     @import 'leaflet/dist/leaflet.css';
+     /* @import '/css/map.css'; */
 </style>
